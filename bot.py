@@ -211,15 +211,15 @@ def get_subscription_keyboard(unsub_channels: list) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-def get_start_keyboard() -> Optional[InlineKeyboardMarkup]:
+def get_start_keyboard(user_id: int = 0) -> Optional[InlineKeyboardMarkup]:
     """Start menyusi uchun qo'shimcha tugmalar (Admin tomonidan qo'shilgan)."""
-    extra_btns = database.get_extra_buttons()
-    if not extra_btns:
-        return None
     rows = []
+    if user_id and database.is_admin(user_id):
+        rows.append([InlineKeyboardButton(text="👑 Boshqaruv Paneli (Admin)", callback_data="admin:main")])
+    extra_btns = database.get_extra_buttons()
     for b in extra_btns:
         rows.append([InlineKeyboardButton(text=b["button_text"], url=b["button_url"])])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 
 # --- START BUYRUG'I (0.02s TEZLIK) ---
@@ -280,7 +280,7 @@ async def cmd_start(message: Message):
             f"💡 <i>Musiqa izlash uchun uning nomini yozing yoki video yuklash uchun havola yuboring!</i>"
         )
     
-    await message.answer(text, reply_markup=get_start_keyboard())
+    await message.answer(text, reply_markup=get_start_keyboard(message.from_user.id))
 
 
 @dp.callback_query(F.data == "check_sub")

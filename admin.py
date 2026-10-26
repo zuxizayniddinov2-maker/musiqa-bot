@@ -130,6 +130,7 @@ def get_admins_kb() -> InlineKeyboardMarkup:
 # --- ADMIN BUYRUG'I (/admin) ---
 
 @admin_router.message(Command("admin", "panel"))
+@admin_router.message(F.text.lower().in_(["/admin", "admin", "panel", "/panel", "admin panel"]))
 async def cmd_admin_panel(message: Message, state: FSMContext):
     """Admin panel bosh menyusi."""
     await state.clear()
