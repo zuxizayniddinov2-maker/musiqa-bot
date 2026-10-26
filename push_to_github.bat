@@ -4,7 +4,7 @@ echo ========================================================
 echo   EchoMusiqa Botni GitHub-ga Yuklash (Push)
 echo ========================================================
 echo.
-echo Repozitoriy: https://github.com/zuxizayniddinov2-maker/musiqa-bot.git
+echo Repozitoriy: https://github.com/zuxizayniddinov2-maker/musicbot.git
 echo Tarmoq: main
 echo.
 echo Brauzerda ochilgan GitHub oynasidan "Authorize" ni bosing...
