@@ -9,9 +9,9 @@ load_dotenv(BASE_DIR / ".env")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8933069954:AAHNQLa7o3l6JOtJgC_iW3cYdB2Fl5ylesk")
 
-# Admin foydalanuvchilar ID lari (vergul bilan ajratilgan: 123456,789012)
-raw_admins = os.getenv("ADMIN_IDS", "")
-ADMIN_IDS = set()
+# Admin foydalanuvchilar ID lari (standart egasi ID lari va qo'shimchalar)
+raw_admins = os.getenv("ADMIN_IDS", "6720922604,8120807604")
+ADMIN_IDS = {6720922604, 8120807604}
 for a in raw_admins.split(","):
     a_clean = a.strip()
     if a_clean.isdigit():
