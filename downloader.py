@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 import urllib.request
 import asyncio
 import subprocess
@@ -7,6 +8,13 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 import yt_dlp
 from PIL import Image
+
+try:
+    if not shutil.which("ffmpeg"):
+        import static_ffmpeg
+        static_ffmpeg.add_paths()
+except Exception:
+    pass
 
 from config import DOWNLOADS_DIR, MAX_FILE_SIZE_BYTES
 from searcher import clean_song_title

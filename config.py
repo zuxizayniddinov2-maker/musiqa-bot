@@ -9,6 +9,18 @@ load_dotenv(BASE_DIR / ".env")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8933069954:AAHNQLa7o3l6JOtJgC_iW3cYdB2Fl5ylesk")
 
+# Admin foydalanuvchilar ID lari (vergul bilan ajratilgan: 123456,789012)
+raw_admins = os.getenv("ADMIN_IDS", "")
+ADMIN_IDS = set()
+for a in raw_admins.split(","):
+    a_clean = a.strip()
+    if a_clean.isdigit():
+        ADMIN_IDS.add(int(a_clean))
+
+# Render.com va Web server sozlamalari
+PORT = int(os.getenv("PORT", "8080"))
+IS_RENDER = os.getenv("RENDER", "").lower() in ("true", "1") or "RENDER" in os.environ
+
 # Papkalar
 DOWNLOADS_DIR = BASE_DIR / "downloads"
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)

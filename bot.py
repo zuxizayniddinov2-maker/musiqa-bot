@@ -17,6 +17,7 @@ from aiogram.types import (
 )
 from aiogram.enums import ChatAction, ParseMode
 from aiogram.client.default import DefaultBotProperties
+from aiohttp import web
 
 import config
 import database
@@ -24,6 +25,7 @@ import searcher
 import downloader
 import effects
 import shazam_helper
+from admin import admin_router
 
 # Logging
 logging.basicConfig(
@@ -37,6 +39,7 @@ bot = Bot(
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
 dp = Dispatcher()
+dp.include_router(admin_router)
 
 # Tezkor xotira keshlari (0.05s javob tezligi uchun)
 active_media_files = {}
@@ -148,6 +151,77 @@ def get_direct_video_keyboard(file_id: str) -> InlineKeyboardMarkup:
     ])
 
 
+# --- RENDER HEALTH SERVER VA MIDLVARALAR ---
+
+async def handle_health_check(request):
+    """Render.com uchun HTTP Health Check javobi."""
+    stats = database.get_stats()
+    return web.json_response({
+        "status": "ok",
+        "service": "EchoMusiqa Bot",
+        "timestamp": time.time(),
+        "total_users": stats.get("total_users", 0),
+        "active_today": stats.get("active_today", 0)
+    })
+
+async def start_render_health_server():
+    """Render.com Web Service $PORT da HTTP serverni ko'tarish."""
+    port = config.PORT
+    try:
+        app = web.Application()
+        app.router.add_get("/", handle_health_check)
+        app.router.add_get("/health", handle_health_check)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        logger.info(f"Render HTTP server 0.0.0.0:{port} portida muvaffaqiyatli ishga tushdi.")
+    except Exception as e:
+        logger.error(f"Render HTTP serverni ko'tarishda xatolik: {e}")
+
+def is_in_maintenance(user_id: int) -> bool:
+    """Agar texnik ta'mirlash yoqilgan bo'lsa va user admin bo'lmasa True qaytadi."""
+    if database.get_setting("maintenance_mode", "0") == "1":
+        return not database.is_admin(user_id)
+    return False
+
+async def check_user_subscriptions(user_id: int) -> tuple[bool, list]:
+    """Foydalanuvchi majburiy kanallarga a'zo bo'lganmi?"""
+    if not database.is_feature_enabled("feature_mandatory_sub"):
+        return True, []
+    if database.is_admin(user_id):
+        return True, []
+    channels = database.get_channels()
+    if not channels:
+        return True, []
+    unsub = []
+    for ch in channels:
+        try:
+            m = await bot.get_chat_member(chat_id=ch["channel_id"], user_id=user_id)
+            if m.status in ("left", "kicked"):
+                unsub.append(ch)
+        except Exception as e:
+            logger.warning(f"Kanal a'zoligi tekshirishda xatolik ({ch['channel_id']}): {e}")
+    return (len(unsub) == 0), unsub
+
+def get_subscription_keyboard(unsub_channels: list) -> InlineKeyboardMarkup:
+    rows = []
+    for ch in unsub_channels:
+        rows.append([InlineKeyboardButton(text=f"📢 {ch['title']}", url=ch['invite_link'])])
+    rows.append([InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def get_start_keyboard() -> Optional[InlineKeyboardMarkup]:
+    """Start menyusi uchun qo'shimcha tugmalar (Admin tomonidan qo'shilgan)."""
+    extra_btns = database.get_extra_buttons()
+    if not extra_btns:
+        return None
+    rows = []
+    for b in extra_btns:
+        rows.append([InlineKeyboardButton(text=b["button_text"], url=b["button_url"])])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 # --- START BUYRUG'I (0.02s TEZLIK) ---
 
 @dp.message(CommandStart())
@@ -159,37 +233,69 @@ async def cmd_start(message: Message):
         message.from_user.username,
         message.from_user.first_name
     ))
+
+    # Texnik ishlar tekshiruvi
+    if is_in_maintenance(message.from_user.id):
+        await message.answer("🛠️ <b>Botda texnik ta'mirlash ishlari olib borilmoqda.</b>\n<i>Tez orada qayta ishga tushadi!</i>")
+        return
+
+    # Majburiy obuna tekshiruvi
+    is_sub, unsub = await check_user_subscriptions(message.from_user.id)
+    if not is_sub:
+        await message.answer(
+            "⚠️ <b>Botdan to'liq foydalanish uchun quyidagi homiy kanallarga a'zo bo'ling:</b>",
+            reply_markup=get_subscription_keyboard(unsub)
+        )
+        return
     
     user_name = message.from_user.first_name or "Aziz do'stim"
+    custom_txt = database.get_setting("custom_welcome_text", "")
+    if custom_txt:
+        text = custom_txt.replace("{name}", user_name)
+    else:
+        text = (
+            f"⚡ <b>EchoMusiqa Bot olamiga xush kelibsiz, {user_name}!</b>\n\n"
+            f"Ushbu bot eng ilg'or texnologiyalar asosida qurilgan bo'lib, har qanday multimedia "
+            f"amallarini <b>0.5 soniyada</b> chaqmoqdek tezlikda bajarish imkoniyatiga ega.\n\n"
+            f"✨ <b>Botning barcha imkoniyatlari:</b>\n\n"
+            f"🎵 <b>Top 10 Original Musiqa Qidiruvi:</b>\n"
+            f"Qo'shiq nomi, ijrochi yoki taronaning bir parchasini yozing — bot internet bo'ylab "
+            f"eng original, yuqori sifatli Top 10 talikni bir zumda taqdim etadi.\n\n"
+            f"🎧 <b>3D Ovoz va 🏟️ Konsert Zali Akustikasi:</b>\n"
+            f"Har qanday qo'shiqni yangicha jarangda kashf eting:\n"
+            f"• <b>3D Ovoz:</b> Quloqchinlarda tinglanganda tovush 360° aylanuvchi fazoviy (8D) effekt kasb etadi.\n"
+            f"• <b>Konsert Zali:</b> Taronaga ulkan stadion va jonli konsert arenasidagi aks-sado (reverb) bag'ishlaydi.\n\n"
+            f"📥 <b>Instagram, TikTok va YouTube Yuklovchi:</b>\n"
+            f"Ijtimoiy tarmoqlardagi Reels, Shorts va video havolalarini tashlang — video maksimal tiniqlikda "
+            f"va suv belgilarisiz tezkor yuklab beriladi.\n\n"
+            f"⭕ <b>Telegram Dumaloq Video (Video Note):</b>\n"
+            f"Ijtimoiy tarmoq videolarini yoki botga o'zingiz yuborgan har qanday videoni 0.5 soniyada "
+            f"haqiqiy Telegram dumaloq video xabariga aylantiring.\n\n"
+            f"🔍 <b>Shazam — Videodagi Musiqani Topish:</b>\n"
+            f"Videoda yangragan ohang yoqdimi? Birgina tugma bilan aqlli Shazam orqali videodagi "
+            f"musiqani aniqlang va uning original Top 10 taligini oling.\n\n"
+            f"🔊 <b>Videodan Audio Ajratish:</b>\n"
+            f"Har qanday videoning musiqa yoki ovoz yo'lakchasini yuqori sifatli audio (MP3) formatda ajratib oling.\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💡 <i>Musiqa izlash uchun uning nomini yozing yoki video yuklash uchun havola yuboring!</i>"
+        )
     
-    text = (
-        f"⚡ <b>EchoMusiqa Bot olamiga xush kelibsiz, {user_name}!</b>\n\n"
-        f"Ushbu bot eng ilg'or texnologiyalar asosida qurilgan bo'lib, har qanday multimedia "
-        f"amallarini <b>0.5 soniyada</b> chaqmoqdek tezlikda bajarish imkoniyatiga ega.\n\n"
-        f"✨ <b>Botning barcha imkoniyatlari:</b>\n\n"
-        f"🎵 <b>Top 10 Original Musiqa Qidiruvi:</b>\n"
-        f"Qo'shiq nomi, ijrochi yoki taronaning bir parchasini yozing — bot internet bo'ylab "
-        f"eng original, yuqori sifatli Top 10 talikni bir zumda taqdim etadi.\n\n"
-        f"🎧 <b>3D Ovoz va 🏟️ Konsert Zali Akustikasi:</b>\n"
-        f"Har qanday qo'shiqni yangicha jarangda kashf eting:\n"
-        f"• <b>3D Ovoz:</b> Quloqchinlarda tinglanganda tovush 360° aylanuvchi fazoviy (8D) effekt kasb etadi.\n"
-        f"• <b>Konsert Zali:</b> Taronaga ulkan stadion va jonli konsert arenasidagi aks-sado (reverb) bag'ishlaydi.\n\n"
-        f"📥 <b>Instagram, TikTok va YouTube Yuklovchi:</b>\n"
-        f"Ijtimoiy tarmoqlardagi Reels, Shorts va video havolalarini tashlang — video maksimal tiniqlikda "
-        f"va suv belgilarisiz tezkor yuklab beriladi.\n\n"
-        f"⭕ <b>Telegram Dumaloq Video (Video Note):</b>\n"
-        f"Ijtimoiy tarmoq videolarini yoki botga o'zingiz yuborgan har qanday videoni 0.5 soniyada "
-        f"haqiqiy Telegram dumaloq video xabariga aylantiring.\n\n"
-        f"🔍 <b>Shazam — Videodagi Musiqani Topish:</b>\n"
-        f"Videoda yangragan ohang yoqdimi? Birgina tugma bilan aqlli Shazam orqali videodagi "
-        f"musiqani aniqlang va uning original Top 10 taligini oling.\n\n"
-        f"🔊 <b>Videodan Audio Ajratish:</b>\n"
-        f"Har qanday videoning musiqa yoki ovoz yo'lakchasini yuqori sifatli audio (MP3) formatda ajratib oling.\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 <i>Musiqa izlash uchun uning nomini yozing yoki video yuklash uchun havola yuboring!</i>"
-    )
-    
-    await message.answer(text)
+    await message.answer(text, reply_markup=get_start_keyboard())
+
+
+@dp.callback_query(F.data == "check_sub")
+async def cb_check_sub(callback: CallbackQuery):
+    """Majburiy obunani qayta tekshirish."""
+    is_sub, unsub = await check_user_subscriptions(callback.from_user.id)
+    if is_sub:
+        await callback.answer("✅ Rahmat! Barcha kanallarga muvaffaqiyatli a'zo bo'lgansiz.", show_alert=True)
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await cmd_start(callback.message)
+    else:
+        await callback.answer("❌ Hali hamma kanallarga a'zo emassiz! Iltimos, barchasiga ulaning.", show_alert=True)
 
 
 @dp.callback_query(F.data == "close_msg")
@@ -205,6 +311,19 @@ async def cb_close_msg(callback: CallbackQuery):
 
 async def handle_search_query(message: Message, query: str):
     """Musiqa qidiruvi: 0.05s da javob, 0.3s da Top 10 talikni chiqarish."""
+    if is_in_maintenance(message.from_user.id):
+        await message.answer("🛠️ <b>Botda texnik ta'mirlash ishlari olib borilmoqda.</b>")
+        return
+
+    is_sub, unsub = await check_user_subscriptions(message.from_user.id)
+    if not is_sub:
+        await message.answer("⚠️ <b>Musiqa qidirish uchun avval homiy kanallarga a'zo bo'ling:</b>", reply_markup=get_subscription_keyboard(unsub))
+        return
+
+    if not database.is_feature_enabled("feature_search"):
+        await message.answer("⚠️ <b>Musiqa qidiruvi xizmati admin tomonidan vaqtincha to'xtatilgan.</b>")
+        return
+
     norm_query = query.lower().strip()
     cached = database.get_search_cache(norm_query)
 
@@ -249,6 +368,19 @@ async def handle_search_query(message: Message, query: str):
 
 async def handle_video_url(message: Message, url: str):
     """Instagram, TikTok yoki YouTube videosini tezkor yuklash."""
+    if is_in_maintenance(message.from_user.id):
+        await message.answer("🛠️ <b>Botda texnik ta'mirlash ishlari olib borilmoqda.</b>")
+        return
+
+    is_sub, unsub = await check_user_subscriptions(message.from_user.id)
+    if not is_sub:
+        await message.answer("⚠️ <b>Video yuklash uchun avval homiy kanallarga a'zo bo'ling:</b>", reply_markup=get_subscription_keyboard(unsub))
+        return
+
+    if not database.is_feature_enabled("feature_social_video"):
+        await message.answer("⚠️ <b>Ijtimoiy tarmoqlardan video yuklash xizmati admin tomonidan vaqtincha to'xtatilgan.</b>")
+        return
+
     clean_url = url.split('?')[0].rstrip('/')
     url_id = re.sub(r'[^a-zA-Z0-9_]', '_', clean_url)[-30:]
     
@@ -331,6 +463,11 @@ async def on_text_message(message: Message):
 @dp.callback_query(F.data.startswith("m:"))
 async def cb_download_music(callback: CallbackQuery):
     """Foydalanuvchi qidiruvdagi 1..10 raqamli tugmani bosganda."""
+    is_sub, unsub = await check_user_subscriptions(callback.from_user.id)
+    if not is_sub:
+        await callback.message.answer("⚠️ <b>Musiqa yuklash uchun avval homiy kanallarga a'zo bo'ling:</b>", reply_markup=get_subscription_keyboard(unsub))
+        return
+
     video_id = callback.data.split(":", 1)[1]
     await callback.answer("⚡ Musiqa yuborilmoqda...")
 
@@ -402,6 +539,10 @@ async def cb_download_music(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("3d:"))
 async def cb_effect_3d(callback: CallbackQuery):
     """Musiqani 3D ovoz effektiga o'tkazish (Telegram musiqa pleyeri uchun MP3)."""
+    if not database.is_feature_enabled("feature_3d"):
+        await callback.answer("⚠️ 3D ovoz effekti admin tomonidan vaqtincha to'xtatilgan.", show_alert=True)
+        return
+
     video_id = callback.data.split(":", 1)[1]
     await callback.answer("🎧 3D ovoz yuborilmoqda...")
 
@@ -495,6 +636,10 @@ async def cb_effect_3d(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("c:"))
 async def cb_effect_concert(callback: CallbackQuery):
     """Musiqani Konsert Zali ovoz effektiga o'tkazish (Telegram musiqa pleyeri uchun MP3)."""
+    if not database.is_feature_enabled("feature_concert"):
+        await callback.answer("⚠️ Konsert effekti admin tomonidan vaqtincha to'xtatilgan.", show_alert=True)
+        return
+
     video_id = callback.data.split(":", 1)[1]
     await callback.answer("🏟️ Konsert ovozi yuborilmoqda...")
 
@@ -588,6 +733,10 @@ async def cb_effect_concert(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("vm:"))
 async def cb_video_music(callback: CallbackQuery):
     """Videodagi musiqani Shazam orqali aniqlash va Top 10 talikni 0.05s da chiqarish."""
+    if not database.is_feature_enabled("feature_shazam"):
+        await callback.answer("⚠️ Videodan musiqani aniqlash admin tomonidan vaqtincha to'xtatilgan.", show_alert=True)
+        return
+
     url_id = callback.data.split(":", 1)[1]
     await callback.answer("🔍 Videodagi musiqa aniqlandi!")
 
@@ -637,6 +786,10 @@ async def cb_video_music(callback: CallbackQuery):
 @dp.callback_query(F.data.startswith("vr:"))
 async def cb_video_round(callback: CallbackQuery):
     """Videoni Telegram dumaloq videosiga aylantirish (0.05-0.3 soniya)."""
+    if not database.is_feature_enabled("feature_round_video"):
+        await callback.answer("⚠️ Dumaloq video tayyorlash admin tomonidan vaqtincha to'xtatilgan.", show_alert=True)
+        return
+
     url_id = callback.data.split(":", 1)[1]
     await callback.answer("⭕ Dumaloq video yuborilmoqda...")
 
@@ -773,6 +926,19 @@ async def on_direct_video_received(message: Message):
     Foydalanuvchi botga to'g'ridan-to'g'ri video tashlasa:
     Telegram oqimidan to'g'ridan-to'g'ri 0.5s da dumaloq videoga aylantirib yuboradi!
     """
+    if is_in_maintenance(message.from_user.id):
+        await message.answer("🛠️ <b>Botda texnik ta'mirlash ishlari olib borilmoqda.</b>")
+        return
+
+    is_sub, unsub = await check_user_subscriptions(message.from_user.id)
+    if not is_sub:
+        await message.answer("⚠️ <b>Dumaloq video tayyorlash uchun avval homiy kanallarga a'zo bo'ling:</b>", reply_markup=get_subscription_keyboard(unsub))
+        return
+
+    if not database.is_feature_enabled("feature_round_video"):
+        await message.answer("⚠️ <b>Dumaloq video tayyorlash xizmati admin tomonidan vaqtincha to'xtatilgan.</b>")
+        return
+
     asyncio.create_task(asyncio.to_thread(
         database.register_user,
         message.from_user.id,
@@ -834,6 +1000,10 @@ async def on_direct_video_received(message: Message):
 @dp.callback_query(F.data.startswith("dvm:"))
 async def cb_direct_video_music(callback: CallbackQuery):
     """Tashlangan videodan musiqani aniqlash."""
+    if not database.is_feature_enabled("feature_shazam"):
+        await callback.answer("⚠️ Musiqani aniqlash admin tomonidan vaqtincha to'xtatilgan.", show_alert=True)
+        return
+
     short_id = callback.data.split(":", 1)[1]
     await callback.answer("🔍 Musiqa aniqlanmoqda...")
 
@@ -943,6 +1113,9 @@ async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     asyncio.create_task(cleanup_temp_files_loop())
     
+    # Render.com Web Service HTTP Health Serverini ko'tarish ($PORT)
+    asyncio.create_task(start_render_health_server())
+
     # Doimiy http sessiyani oldindan qizdirib qo'yish (pre-warm)
     await searcher.get_http_session()
     

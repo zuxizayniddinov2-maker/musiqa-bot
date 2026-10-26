@@ -1,9 +1,18 @@
 import os
+import shutil
 import asyncio
 import subprocess
 from pathlib import Path
 from typing import Optional
 from config import DOWNLOADS_DIR
+
+# Agar tizimda ffmpeg bo'lmasa (masalan Render buildpack), static-ffmpeg ni ulaymiz
+try:
+    if not shutil.which("ffmpeg"):
+        import static_ffmpeg
+        static_ffmpeg.add_paths()
+except Exception:
+    pass
 
 async def run_ffmpeg_command(cmd: list) -> bool:
     """FFmpeg buyrug'ini asinxron rejimda chaqirish."""

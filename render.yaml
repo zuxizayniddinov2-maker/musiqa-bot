@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: echomusiqa-bot
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: MAX_FILE_SIZE_MB
+        value: "50"
+      - key: TEMP_FILE_LIFETIME_MINUTES
+        value: "30"
