@@ -144,7 +144,6 @@ async def cmd_admin_panel(message: Message, state: FSMContext):
         await message.answer(f"👑 <b>Siz muvaffaqiyatli Bosh Admin (Root) etib belgilandingiz!</b> (ID: <code>{user_id}</code>)")
 
     if not database.is_admin(user_id):
-        await message.answer("⛔ <b>Kechirasiz, siz bot administratori emassiz.</b>")
         return
 
     text = (

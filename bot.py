@@ -212,10 +212,8 @@ def get_subscription_keyboard(unsub_channels: list) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def get_start_keyboard(user_id: int = 0) -> Optional[InlineKeyboardMarkup]:
-    """Start menyusi uchun qo'shimcha tugmalar (Admin tomonidan qo'shilgan)."""
+    """Start menyusi uchun qo'shimcha tugmalar (faqat admin tomonidan qo'shilgan havola tugmalari)."""
     rows = []
-    if user_id and database.is_admin(user_id):
-        rows.append([InlineKeyboardButton(text="👑 Boshqaruv Paneli (Admin)", callback_data="admin:main")])
     extra_btns = database.get_extra_buttons()
     for b in extra_btns:
         rows.append([InlineKeyboardButton(text=b["button_text"], url=b["button_url"])])
