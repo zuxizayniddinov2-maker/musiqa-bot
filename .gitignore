@@ -1,0 +1,38 @@
+# Environment & Secrets
+.env
+*.env
+
+# Media & Downloads
+downloads/
+*.mp3
+*.mp4
+*.m4a
+*.webm
+*.opus
+*.jpg
+*.jpeg
+*.png
+*.part
+*.ytdl
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+ENV/
+
+# IDE & OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
