@@ -130,7 +130,7 @@ def get_admins_kb() -> InlineKeyboardMarkup:
 # --- ADMIN BUYRUG'I (/admin) ---
 
 @admin_router.message(Command("admin", "panel"))
-@admin_router.message(F.text.lower().in_(["/admin", "admin", "panel", "/panel", "admin panel"]))
+@admin_router.message(F.text.func(lambda t: bool(t and t.strip().lower() in ["/admin", "admin", "panel", "/panel", "admin panel"])))
 async def cmd_admin_panel(message: Message, state: FSMContext):
     """Admin panel bosh menyusi."""
     await state.clear()
@@ -144,6 +144,11 @@ async def cmd_admin_panel(message: Message, state: FSMContext):
         await message.answer(f"👑 <b>Siz muvaffaqiyatli Bosh Admin (Root) etib belgilandingiz!</b> (ID: <code>{user_id}</code>)")
 
     if not database.is_admin(user_id):
+        await message.answer(
+            f"⛔ <b>Siz admin emassiz!</b>\n\n"
+            f"Sizning Telegram ID: <code>{user_id}</code>\n"
+            f"<i>Admin panel faqat ruxsat berilgan adminlar uchun ochiq.</i>"
+        )
         return
 
     text = (
